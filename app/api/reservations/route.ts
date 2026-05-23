@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { releaseExpiredReservations } from "@/lib/expiry";
 import { prisma } from "@/lib/prisma";
 import {
   acquireLock,
