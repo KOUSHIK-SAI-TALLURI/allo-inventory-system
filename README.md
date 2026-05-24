@@ -1,42 +1,502 @@
-# Allo Inventory — Reservation System
+#Allo Inventory System
 
-A full-stack inventory reservation system built with Next.js 14, Prisma, Supabase, and Redis (Upstash).
+Concurrency-safe inventory reservation system built for the Allo Engineering Take-Home Exercise.
 
-**Live demo:** `[your-deployment-url]`
+Live Demo:
+https://your-vercel-url.vercel.app
+
+GitHub Repository:
+https://github.com/KOUSHIK-SAI-TALLURI/allo-inventory-system
+
 
 ---
 
-## Local Setup
+Overview
 
-### Prerequisites
-- Node.js 18+
-- A hosted Postgres instance (Supabase free tier recommended)
-- A Redis instance (Upstash free tier recommended)
+This project implements a temporary inventory reservation system for multi-warehouse commerce workflows.
 
-### 1. Clone & install
-```bash
-git clone https://github.com/your-username/allo-inventory
-cd allo-inventory
+The core problem addressed is preventing overselling during checkout flows where payment confirmation can take several minutes (UPI, 3DS, wallet redirects, etc.).
+
+Instead of decrementing inventory only after payment success, the system creates a short-lived reservation that temporarily holds stock units during checkout.
+
+If payment succeeds:
+
+reservation is confirmed
+
+stock is permanently consumed
+
+
+If payment fails or expires:
+
+reservation is released
+
+units become available again
+
+
+The implementation focuses heavily on:
+
+correctness under concurrency
+
+race-condition prevention
+
+transactional consistency
+
+production-style backend architecture
+
+
+
+---
+
+Tech Stack
+
+Frontend
+
+Next.js 14 (App Router)
+
+TypeScript
+
+Tailwind CSS
+
+
+Backend
+
+Next.js Route Handlers
+
+Prisma ORM
+
+Neon PostgreSQL
+
+Upstash Redis
+
+
+Validation & Utilities
+
+Zod
+
+Redis distributed locking
+
+Prisma transactions
+
+
+
+---
+
+Features
+
+Inventory & Warehouses
+
+Multi-warehouse inventory support
+
+Per-warehouse stock visibility
+
+Available vs reserved stock tracking
+
+
+Reservation System
+
+Create reservations
+
+Confirm reservations
+
+Release reservations
+
+Automatic reservation expiry
+
+
+Concurrency Safety
+
+Prevents overselling under concurrent requests
+
+Row-level transaction consistency
+
+Redis distributed locking
+
+
+UX
+
+Live reservation countdown
+
+Reservation status tracking
+
+Real-time inventory refresh
+
+Error visibility for:
+
+409 insufficient stock
+
+410 expired reservation
+
+
+
+Bonus Features
+
+Idempotency-Key support
+
+Concurrency testing probe
+
+Reservation state indicators
+
+
+
+---
+
+Data Model
+
+Product
+
+Represents a sellable inventory item.
+
+Warehouse
+
+Represents a physical fulfillment location.
+
+StockLevel
+
+Tracks:
+
+totalUnits
+
+reservedUnits
+
+availableUnits
+
+
+per product per warehouse.
+
+Reservation
+
+Tracks:
+
+PENDING
+
+CONFIRMED
+
+RELEASED
+
+
+along with:
+
+expiry timestamps
+
+release timestamps
+
+confirmation timestamps
+
+
+
+---
+
+API Endpoints
+
+GET /api/products
+
+Returns products with warehouse-level stock availability.
+
+GET /api/warehouses
+
+Returns all warehouses.
+
+POST /api/reservations
+
+Creates a reservation.
+
+Returns:
+
+201 on success
+
+409 if insufficient stock
+
+
+POST /api/reservations/:id/confirm
+
+Confirms reservation after payment success.
+
+Returns:
+
+410 if reservation expired
+
+
+POST /api/reservations/:id/release
+
+Releases reservation early.
+
+
+---
+
+Concurrency Strategy
+
+Concurrency correctness was treated as the primary focus of the assignment.
+
+The reservation flow uses:
+
+1. Redis Distributed Locking
+
+Before mutating inventory, a Redis lock is acquired per:
+
+product
+
+warehouse
+
+
+This prevents simultaneous reservation mutations across distributed instances.
+
+2. Prisma Transactions
+
+Reservation creation and stock updates happen atomically inside database transactions.
+
+3. Atomic Reserved Unit Updates
+
+Stock updates use increment/decrement operations rather than overwriting values.
+
+This guarantees that:
+
+two concurrent requests for the final unit cannot both succeed
+
+exactly one request succeeds
+
+remaining requests receive 409
+
+
+
+---
+
+Reservation Expiry Strategy
+
+Reservations expire after 10 minutes.
+
+Expired reservations are automatically released using:
+
+lazy cleanup on reads
+
+
+Whenever inventory is fetched:
+
+expired pending reservations are detected
+
+reserved units are decremented
+
+reservation state changes to RELEASED
+
+
+A cron-based approach was initially explored but removed for compatibility with Vercel Hobby deployment limits.
+
+
+---
+
+Idempotency
+
+The reservation endpoint supports:
+
+Idempotency-Key
+
+
+Duplicate retries with the same key return the original response without repeating the side effect.
+
+This helps protect against:
+
+client retries
+
+unstable network conditions
+
+accidental double submissions
+
+
+
+---
+
+Frontend Flow
+
+Product Page
+
+Displays:
+
+products
+
+warehouse stock
+
+reserved quantities
+
+concurrency probe
+
+
+Users can:
+
+choose warehouse
+
+reserve inventory
+
+proceed to checkout
+
+
+Checkout Page
+
+Displays:
+
+reservation details
+
+countdown timer
+
+confirm purchase button
+
+cancel reservation button
+
+
+UI updates reflect state transitions immediately.
+
+
+---
+
+Running Locally
+
+1. Clone Repository
+
+git clone https://github.com/KOUSHIK-SAI-TALLURI/allo-inventory-system.git
+cd allo-inventory-system
+
+
+---
+
+2. Install Dependencies
+
 npm install
-```
 
-### 2. Configure environment
-```bash
-cp .env.example .env
-```
 
-Fill in `.env`:
-```
-DATABASE_URL=postgresql://...    # from Supabase/Neon/Railway
-REDIS_URL=redis://...            # from Upstash
-CRON_SECRET=<openssl rand -hex 32>
-```
+---
 
-### 3. Run migrations and seed
-```bash
-npm run db:push      # push schema to Postgres
-npm run db:seed      # seed 3 warehouses, 6 products, stock levels
-```
+3. Configure Environment Variables
+
+Create .env
+
+DATABASE_URL="your_neon_postgres_url"
+
+REDIS_URL="your_upstash_redis_url"
+
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+
+
+---
+
+4. Generate Prisma Client
+
+npx prisma generate
+
+
+---
+
+5. Push Schema
+
+npx prisma db push
+
+
+---
+
+6. Seed Database
+
+npm run db:seed
+
+
+---
+
+7. Run Development Server
+
+npm run dev
+
+
+---
+
+Production Deployment
+
+Deployment stack:
+
+Vercel
+
+Neon PostgreSQL
+
+Upstash Redis
+
+
+Environment variables configured in Vercel:
+
+DATABASE_URL
+
+REDIS_URL
+
+NEXT_PUBLIC_APP_URL
+
+
+
+---
+
+Trade-offs & Improvements
+
+Current Trade-offs
+
+Expiry cleanup currently uses lazy reads rather than dedicated workers
+
+No authentication layer
+
+No payment gateway integration
+
+Reservation polling interval is simplistic
+
+
+Future Improvements
+
+Dedicated background worker for expiry cleanup
+
+WebSocket-based real-time inventory updates
+
+Reservation analytics dashboard
+
+Event-driven inventory architecture
+
+Distributed queue processing
+
+
+
+---
+
+What I Focused On
+
+The assignment specifically emphasized:
+
+correctness under concurrency
+
+race-condition prevention
+
+clear architecture
+
+
+Most effort was intentionally spent on:
+
+reservation consistency
+
+transaction safety
+
+distributed locking
+
+backend correctness
+
+
+rather than extensive UI complexity.
+
+
+---
+
+Notes
+
+The system was tested using:
+
+concurrent reservation attempts
+
+reservation expiry scenarios
+
+release flows
+
+confirmation flows
+
+
+The application is fully deployed and functional end-to-end.```
 
 ### 4. Start dev server
 ```bash
