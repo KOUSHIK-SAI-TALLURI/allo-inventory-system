@@ -1,4 +1,4 @@
-#Allo Inventory System
+##Allo Inventory System
 
 Concurrency-safe inventory reservation system built for the Allo Engineering Take-Home Exercise.
 
